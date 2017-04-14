@@ -1,13 +1,15 @@
+## Forked from: https://github.com/ClxS/FASTBuild-UE4
+
 ## Still in progress so beware of potential issues. I also recommend checking out an alternative here: https://github.com/liamkf/Unreal_FASTBuild
 
-There's been a bit of interest in all the steps required to get fastbuild to compile Unreal Engine 4, so I've repository together with all the steps required. For reference I'm using the unmodified 4.13 branch from GitHub, and an unmodified v0.91 fastbuild. This has only currently been tested on Windows builds with caching (without distribution) enabled. Full console support will come in the future.
+There's been a bit of interest in all the steps required to get fastbuild to compile Unreal Engine 4, so we thought we'd release our 4.15 updates to ClxS's original FastBuild.cs.
+For reference we're using a heavily modified UnrealEngine 4.15 branch, and heavily modified v0.93 fastbuild. Neither of these things should affect usage of this script, however.
+This has been tested on Windows builds with distribution enabled. We have not yet tested caching support.
 
 # Setting up FASTBuild
 
-Due to how fastbuild works you can pretty much place it where you want. I keep mine within the engine, with the following file structure.
-* UE4
-* * Engine
-* * * Extras
+We create a windows Environment variable, FASTBUILD_ROOT_DIR, for the fastbuild installation. This script reads the location from that environment variable.
+
 * * * * FASTBuild
 * * * * * FBuild.exe
 * * * * * SDK 
@@ -26,34 +28,20 @@ We also need to add a new file to generate a BFF file from the provided actions 
 
 ### Adding FASTBuild classes
 
-First step is to add our FASTBuild classes. Place the files in this respository in <UnrealBuildTool>/System
+First step is to add our FASTBuild C# class. Place the FastBuild.cs file into UnrealEngine/Engine/Source/Programs/UnrealBuildTool/System
 
 ### Configuration/BuildConfiguration.cs
 
 - Add the following properties to the top of the file.
 
 ```
- // --> FASTBuild
+// --> FASTBuild
 
 /// <summary>
 /// Whether FASTBuild may be used.
 /// </summary>
 [XmlConfig]
 public static bool bAllowFastbuild;
-
-/// <summary>
-/// Whether linking should be disabled. Useful for cache 
-/// generation builds
-/// </summary>
-[XmlConfig]
-public static bool bFastbuildNoLinking;
-
-/// <summary>
-/// Whether the build should continue despite errors. 
-/// Useful for cache generation builds
-/// </summary>
-[XmlConfig]
-public static bool bFastbuildContinueOnError;
 
 // <-- FASTBuild
 ```
@@ -64,7 +52,6 @@ public static bool bFastbuildContinueOnError;
 // --> FASTBuild
 
 bAllowFastbuild = true;
-bUsePDBFiles = false; //Only required if you're using MSVC
 
 // <-- FASTBuild
 ```
@@ -73,9 +60,22 @@ Finally, add this to the ValidateConfiguration method near similar lines for XGE
 
 ```
 // --> FASTBuild
-if(!BuildPlatform.CanUseFastbuild())
+if( !BuildPlatform.CanUseFastbuild() )
 {
     bAllowFastbuild = false;
+}
+
+if ( bAllowFastBuild )
+{
+  // PCH Files are breaking the build in UE4.15 because they are not including the proper extra defines, so we have two options:
+  // #1. Disable them here with bUsePCHFiles = false;
+  // #2. Change line 1188 in UEBuildModule.cs from "CPPCompileEnvironment.Config.Definitions.Clear();" to the following:
+  // if (!BuildPlatform.CanUseFastBuild()) // This breaks FASTBuild, so we're not going to execute it if we're using FASTBuild.
+  // {
+  //      CPPCompileEnvironment.Config.Definitions.Clear();
+  // }
+  bUsePCHFiles = false;	// Only required due to a bug in UE4.15
+  bUsePDBFiles = false;	// Only required if you're using MSVC
 }
 // <-- FASTBuild
 ```
@@ -95,30 +95,13 @@ public virtual bool CanUseFastbuild()
 
 ### System/ActionGraph.cs
 
-Alter the ExecuteActions method to run this check prior to the XGE one:
+Alter the ExecuteActions method to run this check after the SNDBS one, and before the else case:
 ```
- // --> FASTBuild
-if (BuildConfiguration.bAllowFastbuild)
+else if (FASTBuild.IsAvailable() && BuildConfiguration.bAllowFastBuild && (ActionsToExecute.Count() >= FASTBuild.MinimumRequiredActionsToEnableThreshold) )
 {
-    ExecutorName = "Fastbuild";
-
-    FASTBuild.ExecutionResult FastBuildResult = FASTBuild.ExecuteActions(ActionsToExecute);
-    if (FastBuildResult != FASTBuild.ExecutionResult.Unavailable)
-    {
-        ExecutorName = "FASTBuild";
-        Result = (FastBuildResult == FASTBuild.ExecutionResult.TasksSucceeded);
-        bUsedXGE = true;
-    }
+    Log.TraceInformation("ActionGraph.cs::Chose FastBuild as executor - FastBuild.IsAvailable() = {0}", FASTBuild.IsAvailable());
+    Executor = new FASTBuild();
 }
-// <-- FASTBuild
-```
-
-And alter the XGE if to check for !bUseXGE, like this:
-```
-From:
-if (BuildConfiguration.bAllowXGE || BuildConfiguration.bXGEExport)
-To:
-if (!bUsedXGE && (BuildConfiguration.bAllowXGE || BuildConfiguration.bXGEExport))
 ```
 
 ### Windows/UEBuildWindows
@@ -126,18 +109,15 @@ if (!bUsedXGE && (BuildConfiguration.bAllowXGE || BuildConfiguration.bXGEExport)
 Near similar lines for SNDBS, add the following method:
 
 ```
-// --> FASTBuild
-public override bool CanUseFastbuild()
+/// <summary>
+/// If this platform can be compiled with FastBuild
+/// </summary>
+public override bool CanUseFastBuild()
 {
-    return true;
+	// Check that FastBuild is available
+	return FASTBuild.IsAvailable();
 }
-// <-- FASTBuild
 ```
-
-# Enabling Cache Generation
-
-FASTBuildCOnfiguration.cs contains the EnableCacheGenerationMode property. By default this checks for whether an environment variable ("UE-FB-CACHE-WRITE") contains the value TRUE.
-
 # Warnings as errors
 
 Enabling warnings as errors will cause issues with certain things being falsely detected as digraphs, and will need to be fixed manually by adding a space to separate the "<::X"
