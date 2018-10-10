@@ -204,13 +204,17 @@ namespace UnrealBuildTool
         //const string FastBuild_Win10Version = "10.0.10586.0";
         const string FastBuild_Win10Version = "10.0.14393.0";
         const string FastBuild_EnvVar = "FASTBUILD_ROOT_DIR";
+		const string IVR_DevDir_EnvVar = "INSIGHTFUL_DEV_DIR";
 
-        static public bool GetFastBuildParameters( out string oFastBuildRootPath, out string oSdkDir, out string oSdk10Dir )
+		static public bool GetFastBuildParameters( out string oFastBuildRootPath, out string oSdkDir, out string oSdk10Dir )
         {
             bool bDoesFastBuildExist = false;
             string FastBuildRootPath = Environment.GetEnvironmentVariable( FastBuild_EnvVar );
 
-            string ErrorUnassigned = "error-unassigned";
+			// Used if FastBuild Binaries are in git within IvrDevDir
+			string IvrDevDir = Environment.GetEnvironmentVariable( IVR_DevDir_EnvVar );
+
+			string ErrorUnassigned = "error-unassigned";
             string FastBuildExe = ErrorUnassigned;
             string CompilerDir = ErrorUnassigned;
             string SdkDir = ErrorUnassigned;
@@ -237,8 +241,20 @@ namespace UnrealBuildTool
             if (!String.IsNullOrEmpty(FastBuildRootPath))
             {
                 string ExternalVSCompiler = "External/VS" + VSVersion;
-                FastBuildExe = Path.Combine(FastBuildRootPath, "FBuild.exe");
-                CompilerDir = Path.Combine(FastBuildRootPath, ExternalVSCompiler);
+
+				if (!String.IsNullOrEmpty(IvrDevDir))
+				{
+					// First try INSIGHTFUL_DEV_DIR git copy of FastBuild, if it exists...
+					FastBuildExe = Path.Combine(IvrDevDir, "Build/Tools/Windows/FBuild.exe");
+				}
+
+				if( !File.Exists(FastBuildExe) )
+				{
+					// Fallback to generic "installed" copy of FastBuild...
+					FastBuildExe = Path.Combine(FastBuildRootPath, "FBuild.exe");
+				}
+
+				CompilerDir = Path.Combine(FastBuildRootPath, ExternalVSCompiler);
                 SdkDir = Path.Combine(FastBuildRootPath, "External/Windows8.1");
                 Sdk10Dir = Path.Combine(FastBuildRootPath, "External/Windows10");
                 Sdk10IncludeDir = Path.Combine(Sdk10Dir, "Include", FastBuild_Win10Version);
@@ -1895,14 +1911,27 @@ namespace UnrealBuildTool
         private static ExecutionResult DispatchFBuild()
         {
 
-            string FastBuildRootPath = Environment.GetEnvironmentVariable("FASTBUILD_ROOT_DIR");
+			string IvrDevDir = Environment.GetEnvironmentVariable("INSIGHTFUL_DEV_DIR");
+			string FastBuildRootPath = Environment.GetEnvironmentVariable("FASTBUILD_ROOT_DIR");
             string FastBuildPath = "";
             bool bDoesFastBuildBinaryExist = false;
-            if (!String.IsNullOrEmpty(FastBuildRootPath))
-            {
-                FastBuildPath = Path.Combine(FastBuildRootPath, "FBuild.exe");
-                bDoesFastBuildBinaryExist = File.Exists(FastBuildPath);
-            }
+
+			if( !String.IsNullOrEmpty(IvrDevDir))
+			{
+				// First try INSIGHTFUL_DEV_DIR git copy of FastBuild, if it exists...
+				FastBuildPath = Path.Combine(IvrDevDir, "Build/Tools/Windows/FBuild.exe");
+				bDoesFastBuildBinaryExist = File.Exists(FastBuildPath);
+			}
+
+			if (!bDoesFastBuildBinaryExist)
+			{
+				// Fallback to installed copy of FastBuild if git copy was not found...
+				if (!String.IsNullOrEmpty(FastBuildRootPath))
+				{
+					FastBuildPath = Path.Combine(FastBuildRootPath, "FBuild.exe");
+					bDoesFastBuildBinaryExist = File.Exists(FastBuildPath);
+				}
+			}
 
             if (!bDoesFastBuildBinaryExist)
             {
