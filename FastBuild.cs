@@ -214,6 +214,10 @@ namespace UnrealBuildTool
 			// Used if FastBuild Binaries are in git within IvrDevDir
 			string IvrDevDir = Environment.GetEnvironmentVariable( IVR_DevDir_EnvVar );
 
+			// FIX For FastBuild 0.96 Environment Variable Preference Bug:
+			// https://github.com/fastbuild/fastbuild/issues/499
+			Environment.SetEnvironmentVariable("FASTBUILD_CACHE_PATH", "%INSIGHTFUL_DEV_DIR%\\Build\\Output\\.fbuild.cache", EnvironmentVariableTarget.Process);
+
 			string ErrorUnassigned = "error-unassigned";
             string FastBuildExe = ErrorUnassigned;
             string CompilerDir = ErrorUnassigned;
@@ -1956,7 +1960,11 @@ namespace UnrealBuildTool
                 + (EnableMonitorAPIMode ? "-monitor " : "")
                + " -config " + BuildConfiguration.BaseIntermediatePath + "/fbuild.bff");
 
-            PSI.RedirectStandardOutput = true;
+			// FIX For FastBuild 0.96 Environment Variable Preference Bug:
+			// https://github.com/fastbuild/fastbuild/issues/499
+			PSI.EnvironmentVariables["FASTBUILD_CACHE_PATH"] = "%INSIGHTFUL_DEV_DIR%\\Build\\Output\\.fbuild.cache";
+
+			PSI.RedirectStandardOutput = true;
             PSI.RedirectStandardError = true;
             PSI.UseShellExecute = false;
             PSI.CreateNoWindow = true;
